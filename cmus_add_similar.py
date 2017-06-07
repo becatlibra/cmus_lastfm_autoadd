@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 # written by Johannes Weißl <jargon@molb.org>, GPLv3
@@ -11,6 +11,10 @@
 # cmus-remote -C "save -l -"
 #
 # Required version of cmus: 2.4.x
+
+# api key is now required, old txt method no longer works
+# http://www.last.fm/api/account/create
+API_KEY = ''
 
 # only consider tracks which are in the library when cmus starts
 ONLY_TRACKS_IN_LIBRARY = True
@@ -57,6 +61,11 @@ import urllib2
 import re
 import time
 import stat
+import json
+
+# taking care of odd character encoding
+reload(sys)
+sys.setdefaultencoding('utf-8')
 
 def die(msg):
     print >> sys.stderr, '%s: %s' % (sys.argv[0],msg)
@@ -68,21 +77,9 @@ def warn(msg):
 def debug(msg):
     if DEBUG:
         print >> sys.stderr, 'DEBUG: %s' % (msg,)
-    
+
 def list2dict(lst):
     return dict((lst[i],lst[i+1]) for i in xrange(0,len(lst),2))
-
-def xml_entitiy_decode(text):
-    entitydefs = {
-        'quot': '"',
-        'amp' : '&',
-        'apos': "'",
-        'lt'  : '<',
-        'gt'  : '>'
-    }
-    def fixup(m):
-        return entitydefs[m.group(1)]
-    return re.sub('&('+'|'.join(entitydefs.keys())+');', fixup, text)
 
 def xml_entitiy_encode(text):
     def fixup(m):
@@ -139,12 +136,19 @@ class AudioScrobbler(object):
     def get_similar(self, artist):
         q_artist = urllib.quote_plus(xml_entitiy_encode(artist).encode('utf-8'), '')
         try:
-            f = urllib2.urlopen(self.root_url+'artist/'+q_artist+'/similar.txt')
-            d = f.read()
+            f = urllib2.urlopen(self.root_url+'?method=artist.getsimilar&artist='+q_artist+'&api_key='+API_KEY+'&format=json')
         except urllib2.HTTPError, e:
+            debug('inside urllib2.HTTPError: '+str(e))
             raise Exception(str(e))
-        tuples = [tuple(x.split(',',2)) for x in d.rstrip('\n').split('\n')]
-        return [(a,b,xml_entitiy_decode(unicode(c, 'utf-8'))) for (a,b,c) in tuples]
+
+        parsed_json = json.load(f)
+        artists = parsed_json['similarartists']['artist']
+        a = []
+        for artist in artists:
+            an = artist['name']
+            a.append(an)
+
+        return a
 
 class CMus(object):
     def __init__(self, confdir=None, timeout=30*60, remember=0):
@@ -238,13 +242,13 @@ def main(argv=None):
 
     if len(argv) < 2 or len(argv) % 2 != 1:
         die('Usage: %s key value [key value]...\n\none key should be \"artist\"')
-    
+
     cur_track = list2dict(argv[1:])
     if 'artist' not in cur_track:
         die('no artist given')
-    
+
     cmus = CMus(timeout=REMOTE_SAVING_TIMOUT, remember=REMEMBER_TRACKS)
-    
+
     if not cmus.is_running():
         die('cmus not running or cmus-remote not working')
 
@@ -262,7 +266,7 @@ def main(argv=None):
         die('no artists in library / cache')
 
     audioscrobbler = AudioScrobbler()
-    
+
     artist_name = unicode(cur_track['artist'], 'utf-8')
     try:
         all_similar_artists = audioscrobbler.get_similar(artist_name)
@@ -271,7 +275,7 @@ def main(argv=None):
 
     debug('searching for similar artists to "%s"' % (artist_name,))
 
-    similar_artists = [a[2] for a in all_similar_artists if a[2] in cmus.artists]
+    similar_artists = [a for a in all_similar_artists if a in cmus.artists]
     debug('you have %d from %d similar artists' % (len(similar_artists),len(all_similar_artists)))
     if random.random() < JUMPOUT_EPSILON or not similar_artists:
         if not similar_artists:
