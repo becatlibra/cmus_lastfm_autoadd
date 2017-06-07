@@ -1,4 +1,4 @@
-To use the script in cmus, you must aquire an API key from [audioscrobbler] (http://www.last.fm/api/account/create)
+To use the script in cmus, you must aquire an API key from [audioscrobbler](http://www.last.fm/api/account/create)
 
 Then update the script
 ```python
